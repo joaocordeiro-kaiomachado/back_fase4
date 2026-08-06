@@ -1,90 +1,140 @@
-class Produto{
-    #preco;
-    #quantidade;
+/**
+==========================================================
+MANTENDO A POO NO FRONTEND (ABSTRAÇÃO)
+==========================================================
+A classe Produto continua existindo no frontend, ela ainda serve
+para validar os dados na tela antes de enviar para o servidor e
+para organizar o objeto
+*/
+class Produto {
+#preco;
+#quantidade;
 
-    constructor(nome,preco,quantidade){
-        if(!nome || preco<=0 || quantidade<=0){
-            throw new Error("Dados inválidos para o produto");
-        }
-        this.nome = nome;
+constructor(nome, preco, quantidade) {
+if (!nome || preco <= 0 || quantidade <= 0) {
+throw new Error("Dados inválidos para o produto.");
+}
+this.nome = nome;
+this.#preco = parseFloat(preco);
+this.#quantidade = parseInt(quantidade, 10);
+}
 
-        this.#preco = parseFloat(preco);
-        this.#quantidade = parseInt(quantidade);
-    }
+get preco() {
+return this.#preco;
+}
 
-        get preco(){
-            return this.#preco;
-        }
+get quantidade() {
+return this.#quantidade;
+}
 
-        get quantidade(){
-            return this.#quantidade;
-        }
+valorTotal() {
+return this.#preco * this.#quantidade;
+}
 
-        valorTotal(){
-            return this.#preco * this.#quantidade;
-        }
-    }
+// MÉTODO DIDÁTICO: toJSON()
+// Como os atributos #preco e #quantidade são PRIVADOS, o JS
+// não deixa o comando JSON.stringify() acessá-los diretamente.
+// Criamos este método para exportar os dados no formato esperado pela API.
+toJSON() {
+return {
+nome: this.nome,
+preco: this.#preco,
+quantidade: this.#quantidade
+};
+}
+}
 
-    const produtos=[];
+// MUDANÇA PARA A ARQUITETURA CLIENT-SERVER (BACKEND)
+// Endereço da API rodando no servidor Express
+const API_URL = "http://localhost:3000/produtos&quot;;
 
-    document.getElementById("produto-form").addEventListener("submit",function(e){
-        e.preventDefault();
+// REQUISIÇÃO POST - Enviar dados ao servidor
+document.getElementById("produto-form").addEventListener("submit", async function (e) {
+e.preventDefault();
 
-        const nome = document.getElementById("nome").value;
-        const preco = document.getElementById("preco").value;
-        const quantidade = document.getElementById("quantidade").value;
+const nome = document.getElementById("nome").value;
+const preco = document.getElementById("preco").value;
+const quantidade = document.getElementById("quantidade").value;
 
-        try{
-            const novoProduto = new Produto(nome, preco, quantidade);
+try {
+// INSTANCIAÇÃO: criando o objeto temporário e validando os inputs do usuário
+const novoProduto = new Produto(nome, preco, quantidade);
 
-            produtos.push(novoProduto);
+// DISPARO DE REDE: envia o produto convertido em texto JSON para o Express
+const resposta = await fetch(API_URL, {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify(novoProduto.toJSON())
+});
 
-            renderizarTabela();
-            e.target.reset();
+if (!resposta.ok) {
+throw new Error("Erro ao salvar o produto no servidor backend.");
+}
 
-        }catch(erro){
-            alert(erro.message);
-        }
+// Redesenha a interface com base no novo estado do servidor
+renderizarTabela();
 
+e.target.reset();
+} catch (erro) {
+// Captura erros disparados pelo construtor da classe Produto ou falhas de rede
+alert(erro.message);script.js
+}
+});
 
-    });
+// REQUISIÇÃO GET (Buscar do servidor e desenhar a tela)
+async function renderizarTabela() {
+try {
+// 1. Busca os dados brutos (JSON) armazenados no Express
+const resposta = await fetch(API_URL);
+const dadosBrutosDoServidor = await resposta.json();
 
-    function renderizarTabela(){
-        const tabela = document.querySelector('#tabela-produtos tbody');
-        tabela.innerHTML = '';
+const tabela = document.querySelector("#tabela-produtos tbody");
+tabela.innerHTML = ""; // Reseta a tabela para desenhar o novo estado
 
-        produtos.forEach((produto,index)=>{
-            const row = document.createElement('tr');
+let totalAcumulado = 0;
 
-            row.innerHTML=`
-                <td>${produto.nome}</td>
-                <td>R$ ${produto.preco.toFixed(2)}</td>
-                <td>${produto.quantidade}</td>
-                <td></td>
-            `;
+// 2. Passa por cada item retornado pelo backend
+dadosBrutosDoServidor.forEach((dados) => {
+// Reconstituição do objeto: os dados vindos do servidor são literais JSON.
+// Instanciamos a classe Produto novamente para recuperar métodos como valorTotal().
+const produto = new Produto(dados.nome, dados.preco, dados.quantidade);
 
-            const botaoRemover = document.createElement('button');
-            botaoRemover.textContent = 'Remover';
-            botaoRemover.addEventListener('click',()=>removerProduto(index));
+totalAcumulado += produto.valorTotal();
 
-            row.querySelector('td:last-child').appendChild(botaoRemover);
-            tabela.appendChild(row);
-        });
+// Desenha a linha na tabela utilizando os dados do objeto reconstituído
+const row = document.createElement("tr");
 
-        atualizarTotal();
-    }
+row.innerHTML = `
+<td>${produto.nome}</td>
+<td>R$ ${produto.preco.toFixed(2)}</td>
+<td>${produto.quantidade}</td>
+<td>R$ ${produto.valorTotal().toFixed(2)}</td>
+`;
+tabela.appendChild(row);
+});
 
-    function atualizarTotal(){
-        const total = produtos.reduce((acc,p)=>acc+p.valorTotal(),0);
-        document.getElementById('total-estoque').textContent = `Total em estoque: R$ ${total.toFixed(2)}`;
-    }
+// 3. Atualiza o elemento de texto com o acumulado total
+document.getElementById("total-estoque").textContent = `Total em estoque: R$ ${totalAcumulado.toFixed(2)}`;
+} catch (erro) {
+console.error("Erro ao buscar dados no servidor:", erro);
+}
+}
 
-    function removerProduto(index){
-        produtos.splice(index,1);
-        renderizarTabela();
-    }
+// REQUISIÇÃO DELETE (Apagar os dados em lote)
+document.getElementById("limpar-tabela").addEventListener("click", async function () {
+if (confirm("Deseja mesmo limpar toda a tabela no servidor?")) {
+try {
+// Envia uma ordem de remoção total para a API
+await fetch(API_URL, { method: "DELETE" });
 
-    document.getElementById('limpar-tabela').addEventListener('click',function(){
-        produtos.length = 0;
-        renderizarTabela();
-    });
+// Atualiza a tela
+renderizarTabela();
+} catch (erro) {
+console.error("Erro ao limpar dados no servidor:", erro);
+}
+}
+});
+
+// INICIALIZAÇÃO AUTOMÁTICA
+// Carrega os dados do backend assim que o script roda
+renderizarTabela();
